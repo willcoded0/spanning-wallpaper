@@ -8,8 +8,6 @@ import qs.Commons
 import qs.Widgets
 import qs.Services.UI
 
-import "./common"
-
 Item {
     id: root
     property var pluginApi: null
@@ -25,8 +23,10 @@ Item {
     * PROPERTIES
     ***************************/
     readonly property string currentWallpaper: pluginApi?.pluginSettings?.currentWallpaper || ""
-    readonly property string wallpapersFolder: pluginApi?.pluginSettings?.wallpapersFolder || pluginApi?.manifest?.metadata?.defaultSettings?.wallpapersFolder || ""
+    readonly property string wallpapersFolder: pluginApi?.mainInstance?.wallpapersFolder || ""
     readonly property bool processing: pluginApi?.mainInstance?.processing || false
+    readonly property bool filesReady: pluginApi?.mainInstance?.filesReady || false
+    readonly property var filesList: pluginApi?.mainInstance?.filesList || []
 
 
     /***************************
@@ -80,10 +80,7 @@ Item {
                     tooltipText: "Choose a random wallpaper and span it across all monitors."
                     enabled: !root.processing
                     onClicked: {
-                        if (root.pluginApi?.mainInstance == null) {
-                            Logger.e("spanning-wallpaper", "Main instance is null");
-                            return;
-                        }
+                        if (root.pluginApi?.mainInstance == null) return;
                         root.pluginApi.mainInstance.random();
                     }
                 }
@@ -93,10 +90,7 @@ Item {
                     text: "Clear"
                     tooltipText: "Reset wallpapers to the default."
                     onClicked: {
-                        if (root.pluginApi?.mainInstance == null) {
-                            Logger.e("spanning-wallpaper", "Main instance is null");
-                            return;
-                        }
+                        if (root.pluginApi?.mainInstance == null) return;
                         root.pluginApi.mainInstance.clear();
                     }
                 }
@@ -106,6 +100,11 @@ Item {
                 NLabel {
                     visible: root.processing
                     label: "Processing..."
+                }
+
+                NLabel {
+                    visible: root.filesReady && !root.processing
+                    label: root.filesList.length + " images"
                 }
             }
 
@@ -117,12 +116,30 @@ Item {
                 color: Color.mSurfaceVariant
                 radius: Style.radiusS
 
+                // Loading state
+                NText {
+                    anchors.centerIn: parent
+                    visible: !root.filesReady
+                    text: "Loading..."
+                    pointSize: Style.fontSizeL
+                }
+
+                // Empty state
+                NText {
+                    anchors.centerIn: parent
+                    visible: root.filesReady && root.filesList.length === 0
+                    text: "No images found in folder.\nPut .jpg/.png/.webp files in:\n" + root.wallpapersFolder
+                    pointSize: Style.fontSizeM
+                    horizontalAlignment: Text.AlignHCenter
+                }
+
                 NGridView {
                     id: gridView
                     anchors {
                         fill: parent
                         margins: Style.marginXXS
                     }
+                    visible: root.filesReady && root.filesList.length > 0
 
                     property int columns: Math.max(1, Math.floor(availableWidth / 300))
                     property int itemSize: Math.floor(availableWidth / columns)
@@ -130,7 +147,7 @@ Item {
                     cellWidth: itemSize
                     cellHeight: Math.floor(itemSize * (9 / 16))
 
-                    model: folderModel.ready ? folderModel.files : 0
+                    model: root.filesReady ? root.filesList : []
 
                     delegate: Item {
                         id: wallpaper
@@ -166,16 +183,12 @@ Item {
 
                                 onClicked: {
                                     if (root.processing) return;
-                                    if (root.pluginApi?.mainInstance == null) {
-                                        Logger.e("spanning-wallpaper", "Main instance is null");
-                                        return;
-                                    }
-
+                                    if (root.pluginApi?.mainInstance == null) return;
                                     root.pluginApi.mainInstance.applySpanning(wallpaper.modelData);
                                 }
 
                                 onEntered: {
-                                    const filename = wallpaper.modelData.split('/').pop();
+                                    var filename = wallpaper.modelData.split('/').pop();
                                     TooltipService.show(wallpaperImage, filename, "auto", 100);
                                 }
                                 onExited: TooltipService.hideImmediately();
@@ -187,12 +200,6 @@ Item {
         }
     }
 
-    FolderModel {
-        id: folderModel
-        folder: root.wallpapersFolder
-        filters: ["*.jpg", "*.jpeg", "*.png", "*.bmp", "*.webp"]
-    }
-
     NFilePicker {
         id: wallpapersFolderPicker
         title: "Choose spanning wallpapers folder"
@@ -201,7 +208,6 @@ Item {
 
         onAccepted: paths => {
             if (paths.length > 0 && root.pluginApi != null) {
-                Logger.d("spanning-wallpaper", "Selected folder:", paths[0]);
                 root.pluginApi.pluginSettings.wallpapersFolder = paths[0];
                 root.pluginApi.saveSettings();
             }
