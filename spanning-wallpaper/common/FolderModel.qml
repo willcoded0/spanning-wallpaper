@@ -34,10 +34,11 @@ Item {
     }
 
     function forceReload() {
-        internal.ready = false
+        if (root.resolvedFolder === "") return;
+        internal.ready = false;
         internal.files = [];
         proc.running = false;
-        proc.command = ["sh", "-c", proc._command]
+        proc.command = ["sh", "-c", proc._command];
         proc.running = true;
     }
 
@@ -49,7 +50,11 @@ Item {
         return files.indexOf(file);
     }
 
-    onResolvedFolderChanged: forceReload();
+    onResolvedFolderChanged: {
+        if (resolvedFolder !== "") {
+            forceReload();
+        }
+    }
 
     QtObject {
         id: internal
@@ -66,17 +71,13 @@ Item {
             for (const filter of root.filters) {
                 filters.push(`-iname "${filter}"`);
             }
-            return `find "${root.resolvedFolder}" -maxdepth 1 -type f \\( ${filters.join(" -o ")} \\) 2>/dev/null`;
+            return `find ${root.resolvedFolder} -maxdepth 1 ${filters.join(" -o ")}`;
         }
-        running: true
-        command: ["sh", "-c", `${_command}`]
+        running: root.resolvedFolder !== ""
+        command: ["sh", "-c", _command]
 
         stdout: SplitParser {
-            onRead: line => {
-                if (line.trim() !== "") {
-                    internal.files.push(line);
-                }
-            }
+            onRead: line => internal.files.push(line);
         }
         onExited: {
             internal.ready = true;
