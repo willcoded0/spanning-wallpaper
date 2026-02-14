@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "plugins": [
+    {
+      "id": "spanning-wallpaper",
+      "name": "Spanning Wallpaper",
+      "version": "1.0.0",
+      "official": false,
+      "author": "teao",
+      "description": "Set a single wallpaper image that spans across all monitors as one big picture, with optional upscaling.",
+      "repository": "https://github.com/willcoded0/spanning-wallpaper",
+      "minNoctaliaVersion": "4.1.2",
+      "license": "MIT",
+      "tags": [
+        "Bar",
+        "Panel",
+        "System"
+      ],
+      "lastUpdated": "2026-02-13T00:00:00Z"
+    }
+  ]
+}

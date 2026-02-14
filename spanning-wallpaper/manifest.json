@@ -1,0 +1,27 @@
+{
+  "id": "spanning-wallpaper",
+  "name": "Spanning Wallpaper",
+  "version": "1.0.0",
+  "minNoctaliaVersion": "4.1.2",
+  "author": "teao",
+  "license": "MIT",
+  "description": "Set a single wallpaper image that spans across all monitors as one big picture, with optional upscaling.",
+  "tags": ["Bar", "Panel", "System"],
+  "entryPoints": {
+    "main": "Main.qml",
+    "barWidget": "BarWidget.qml",
+    "panel": "Panel.qml",
+    "settings": "Settings.qml"
+  },
+  "dependencies": {
+    "plugins": []
+  },
+  "metadata": {
+    "defaultSettings": {
+      "wallpapersFolder": "~/Pictures/Wallpapers/Spanning",
+      "upscaleEnabled": false,
+      "upscaleMethod": "lanczos",
+      "upscaleMultiplier": 2
+    }
+  }
+}
