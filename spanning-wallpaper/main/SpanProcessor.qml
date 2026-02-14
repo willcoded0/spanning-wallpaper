@@ -3,7 +3,6 @@ import Quickshell
 import Quickshell.Io
 import qs.Commons
 import qs.Services.UI
-import qs.Services.Compositor
 
 Item {
     id: root
@@ -15,7 +14,6 @@ Item {
     signal processingComplete(bool success)
 
     Component.onCompleted: {
-        // Ensure cache directory exists
         mkdirProc.running = true;
     }
 
@@ -24,7 +22,10 @@ Item {
         command: ["mkdir", "-p", root.cacheDir]
     }
 
-    // Compute the bounding box and per-monitor crop geometry, then run magick
+    function shellEscape(s: string): string {
+        return "'" + s.replace(/'/g, "'\\''") + "'";
+    }
+
     function applySpanning(imagePath: string) {
         if (root.processing) {
             Logger.w("spanning-wallpaper", "Already processing, ignoring request");
@@ -69,47 +70,44 @@ Item {
         const totalWidth = maxX - minX;
         const totalHeight = maxY - minY;
 
-        Logger.d("spanning-wallpaper", `Bounding box: ${totalWidth}x${totalHeight} at offset (${minX}, ${minY})`);
+        Logger.i("spanning-wallpaper", `Bounding box: ${totalWidth}x${totalHeight}, monitors: ${screens.length}`);
 
-        // Check upscaling settings
         const upscaleEnabled = root.pluginApi?.pluginSettings?.upscaleEnabled || false;
         const upscaleMethod = root.pluginApi?.pluginSettings?.upscaleMethod || "lanczos";
         const upscaleMultiplier = root.pluginApi?.pluginSettings?.upscaleMultiplier || 2;
 
-        // Build the ImageMagick command
-        // 1. Optionally upscale the source image
-        // 2. Resize to fit the bounding box (preserving aspect ratio, then crop to fill)
-        // 3. For each monitor, crop the appropriate region and save
-        let script = "#!/bin/sh\nset -e\n";
+        // Build shell script with properly escaped paths
         const srcPath = imagePath.startsWith("file://") ? imagePath.substring(7) : imagePath;
-        const tmpResized = `${root.cacheDir}resized.png`;
+        const escapedSrc = shellEscape(srcPath);
+        const tmpResized = shellEscape(`${root.cacheDir}resized.png`);
+
+        let script = "set -e\n";
 
         if (upscaleEnabled) {
-            // Upscale first, then resize to bounding box
             const upW = totalWidth * upscaleMultiplier;
             const upH = totalHeight * upscaleMultiplier;
-            script += `magick "${srcPath}" -filter ${upscaleMethod} -resize ${upW}x${upH}\\> "${root.cacheDir}upscaled.png"\n`;
-            script += `magick "${root.cacheDir}upscaled.png" -resize ${totalWidth}x${totalHeight}^ -gravity center -extent ${totalWidth}x${totalHeight} "${tmpResized}"\n`;
-            script += `rm -f "${root.cacheDir}upscaled.png"\n`;
+            const escapedUpscaled = shellEscape(`${root.cacheDir}upscaled.png`);
+            script += `magick ${escapedSrc} -filter ${upscaleMethod} -resize '${upW}x${upH}>' ${escapedUpscaled}\n`;
+            script += `magick ${escapedUpscaled} -resize '${totalWidth}x${totalHeight}^' -gravity center -extent '${totalWidth}x${totalHeight}' ${tmpResized}\n`;
+            script += `rm -f ${escapedUpscaled}\n`;
         } else {
-            // Just resize to fill bounding box
-            script += `magick "${srcPath}" -resize ${totalWidth}x${totalHeight}^ -gravity center -extent ${totalWidth}x${totalHeight} "${tmpResized}"\n`;
+            script += `magick ${escapedSrc} -resize '${totalWidth}x${totalHeight}^' -gravity center -extent '${totalWidth}x${totalHeight}' ${tmpResized}\n`;
         }
 
         // Crop per-monitor slices
         for (const s of screens) {
             const cropX = s.x - minX;
             const cropY = s.y - minY;
-            const outPath = `${root.cacheDir}${s.name}.png`;
-            script += `magick "${tmpResized}" -crop ${s.width}x${s.height}+${cropX}+${cropY} +repage "${outPath}"\n`;
+            const outPath = shellEscape(`${root.cacheDir}${s.name}.png`);
+            script += `magick ${tmpResized} -crop '${s.width}x${s.height}+${cropX}+${cropY}' +repage ${outPath}\n`;
         }
 
-        script += `rm -f "${tmpResized}"\n`;
+        script += `rm -f ${tmpResized}\n`;
 
-        // Write the script and execute it
         internal.screens = screens;
         internal.imagePath = imagePath;
 
+        Logger.d("spanning-wallpaper", "Running processing script");
         scriptProc.command = ["sh", "-c", script];
         scriptProc.running = true;
     }
@@ -124,31 +122,29 @@ Item {
         id: scriptProc
 
         stdout: SplitParser {
-            onRead: line => Logger.d("spanning-wallpaper", "magick:", line);
+            onRead: line => Logger.d("spanning-wallpaper", "stdout:", line);
         }
         stderr: SplitParser {
-            onRead: line => Logger.w("spanning-wallpaper", "magick stderr:", line);
+            onRead: line => Logger.w("spanning-wallpaper", "stderr:", line);
         }
 
         onExited: (exitCode, exitStatus) => {
             if (exitCode === 0) {
-                Logger.i("spanning-wallpaper", "Image processing complete, applying wallpapers");
+                Logger.i("spanning-wallpaper", "Processing complete, applying wallpapers");
 
-                // Set each monitor's wallpaper to its cropped slice
                 for (const s of internal.screens) {
                     const slicePath = `${root.cacheDir}${s.name}.png`;
                     Logger.d("spanning-wallpaper", `Setting wallpaper for ${s.name}: ${slicePath}`);
                     WallpaperService.changeWallpaper(slicePath, s.name);
                 }
 
-                // Save the current spanning wallpaper path
                 root.pluginApi.pluginSettings.currentWallpaper = internal.imagePath;
                 root.pluginApi.saveSettings();
 
                 root.processing = false;
                 root.processingComplete(true);
             } else {
-                Logger.e("spanning-wallpaper", "Image processing failed with exit code:", exitCode);
+                Logger.e("spanning-wallpaper", "Processing failed with exit code:", exitCode);
                 root.processing = false;
                 root.processingComplete(false);
             }

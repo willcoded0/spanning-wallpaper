@@ -16,6 +16,17 @@ Item {
     readonly property list<string> files: internal.files
     readonly property int count: files.length
 
+    // Expand ~ to the home directory
+    readonly property string resolvedFolder: {
+        let f = root.folder;
+        if (f.startsWith("~/")) {
+            return Quickshell.env("HOME") + f.substring(1);
+        } else if (f === "~") {
+            return Quickshell.env("HOME");
+        }
+        return f;
+    }
+
     function reload() {
         if (!proc.running) {
             forceReload();
@@ -38,7 +49,7 @@ Item {
         return files.indexOf(file);
     }
 
-    onFolderChanged: forceReload();
+    onResolvedFolderChanged: forceReload();
 
     QtObject {
         id: internal
@@ -50,18 +61,22 @@ Item {
         id: proc
 
         readonly property string _command: {
-            let command = `find ${root.folder} -maxdepth 1`
-            let filters = []
+            if (root.resolvedFolder === "") return "true";
+            let filters = [];
             for (const filter of root.filters) {
-                filters.push(`-name "${filter}"`);
+                filters.push(`-iname "${filter}"`);
             }
-            return `${command} \\( ${filters.join(" -o ")} \\) -type f`;
+            return `find "${root.resolvedFolder}" -maxdepth 1 -type f \\( ${filters.join(" -o ")} \\) 2>/dev/null`;
         }
         running: true
         command: ["sh", "-c", `${_command}`]
 
         stdout: SplitParser {
-            onRead: line => internal.files.push(line);
+            onRead: line => {
+                if (line.trim() !== "") {
+                    internal.files.push(line);
+                }
+            }
         }
         onExited: {
             internal.ready = true;
