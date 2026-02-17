@@ -14,7 +14,7 @@ Item {
     ***************************/
     readonly property string currentWallpaper: pluginApi?.pluginSettings?.currentWallpaper || ""
     readonly property string wallpapersFolder: {
-        let f = pluginApi?.pluginSettings?.wallpapersFolder || pluginApi?.manifest?.metadata?.defaultSettings?.wallpapersFolder || "";
+        var f = pluginApi?.pluginSettings?.wallpapersFolder || pluginApi?.manifest?.metadata?.defaultSettings?.wallpapersFolder || "";
         if (f.startsWith("~/")) {
             return Quickshell.env("HOME") + f.substring(1);
         }
@@ -26,16 +26,27 @@ Item {
     readonly property bool filesReady: folderProc.ready
     property list<string> filesList: []
 
+    // Counter to generate unique slice paths so WallpaperService always sees a new path
+    property int generation: 0
+
+    readonly property string baseCacheDir: (Settings.cacheDir || "/tmp/") + "spanning-wallpaper"
+
 
     /***************************
     * WALLPAPER FUNCTIONALITY
     ***************************/
     function applySpanning(path) {
-        if (root.processing) return;
+        if (root.processing) {
+            Logger.w("spanning-wallpaper", "Still processing, please wait");
+            return;
+        }
         if (!path || path === "") return;
 
         root.processing = true;
-        Logger.i("spanning-wallpaper", "Applying spanning wallpaper:", path);
+        root.generation++;
+        var gen = root.generation;
+
+        Logger.i("spanning-wallpaper", "Applying spanning wallpaper (gen " + gen + "):", path);
 
         var screens = [];
         for (var i = 0; i < Quickshell.screens.length; i++) {
@@ -71,39 +82,47 @@ Item {
         Logger.i("spanning-wallpaper", "Bounding box: " + totalWidth + "x" + totalHeight + ", screens: " + screens.length);
 
         var srcPath = path.startsWith("file://") ? path.substring(7) : path;
-        var cacheDir = (Settings.cacheDir || "/tmp/") + "spanning-wallpaper";
 
-        // Build shell script
+        // Use a unique subdir per generation so WallpaperService sees a new path every time
+        var sliceDir = root.baseCacheDir + "/" + gen;
+
+        // Check upscale settings
         var upscaleEnabled = pluginApi?.pluginSettings?.upscaleEnabled || false;
         var upscaleMethod = pluginApi?.pluginSettings?.upscaleMethod || "lanczos";
         var upscaleMultiplier = pluginApi?.pluginSettings?.upscaleMultiplier || 2;
 
-        var script = "set -e\nmkdir -p '" + cacheDir + "'\n";
-        var tmpResized = cacheDir + "/resized.png";
+        var script = "set -e\n";
+
+        // Clean up old generations, keep only current
+        script += "rm -rf '" + root.baseCacheDir + "'/[0-9]* 2>/dev/null || true\n";
+        script += "mkdir -p '" + sliceDir + "'\n";
+
+        // Step 1: Resize source to fill the bounding box (JPG for speed)
+        var tmpResized = sliceDir + "/resized.jpg";
 
         if (upscaleEnabled) {
             var upW = totalWidth * upscaleMultiplier;
             var upH = totalHeight * upscaleMultiplier;
-            script += "magick '" + srcPath + "' -filter " + upscaleMethod + " -resize '" + upW + "x" + upH + ">' '" + cacheDir + "/upscaled.png'\n";
-            script += "magick '" + cacheDir + "/upscaled.png' -resize '" + totalWidth + "x" + totalHeight + "^' -gravity center -extent '" + totalWidth + "x" + totalHeight + "' '" + tmpResized + "'\n";
-            script += "rm -f '" + cacheDir + "/upscaled.png'\n";
+            script += "magick '" + srcPath + "' -filter " + upscaleMethod + " -resize '" + upW + "x" + upH + "' -resize '" + totalWidth + "x" + totalHeight + "^' -gravity center -extent '" + totalWidth + "x" + totalHeight + "' -quality 95 '" + tmpResized + "'\n";
         } else {
-            script += "magick '" + srcPath + "' -resize '" + totalWidth + "x" + totalHeight + "^' -gravity center -extent '" + totalWidth + "x" + totalHeight + "' '" + tmpResized + "'\n";
+            script += "magick '" + srcPath + "' -resize '" + totalWidth + "x" + totalHeight + "^' -gravity center -extent '" + totalWidth + "x" + totalHeight + "' -quality 95 '" + tmpResized + "'\n";
         }
 
+        // Step 2: Crop each monitor's slice in parallel for speed
         for (var i = 0; i < screens.length; i++) {
             var s = screens[i];
             var cropX = s.x - minX;
             var cropY = s.y - minY;
-            var outPath = cacheDir + "/" + s.name + ".png";
-            script += "magick '" + tmpResized + "' -crop '" + s.width + "x" + s.height + "+" + cropX + "+" + cropY + "' +repage '" + outPath + "'\n";
+            var outPath = sliceDir + "/" + s.name + ".jpg";
+            script += "magick '" + tmpResized + "' -crop '" + s.width + "x" + s.height + "+" + cropX + "+" + cropY + "' +repage -quality 95 '" + outPath + "' &\n";
         }
+        script += "wait\n";
         script += "rm -f '" + tmpResized + "'\n";
 
         // Store for onExited handler
         internal.screens = screens;
         internal.imagePath = path;
-        internal.cacheDir = cacheDir;
+        internal.sliceDir = sliceDir;
 
         magickProc.command = ["sh", "-c", script];
         magickProc.running = true;
@@ -144,7 +163,7 @@ Item {
         id: internal
         property var screens: []
         property string imagePath: ""
-        property string cacheDir: ""
+        property string sliceDir: ""
     }
 
     // Image processing
@@ -161,7 +180,7 @@ Item {
 
                 for (var i = 0; i < internal.screens.length; i++) {
                     var s = internal.screens[i];
-                    var slicePath = internal.cacheDir + "/" + s.name + ".png";
+                    var slicePath = internal.sliceDir + "/" + s.name + ".jpg";
                     Logger.i("spanning-wallpaper", "Setting " + s.name + " -> " + slicePath);
                     WallpaperService.changeWallpaper(slicePath, s.name);
                 }
@@ -187,7 +206,7 @@ Item {
         property string _folder: root.wallpapersFolder
 
         running: _folder !== ""
-        command: ["sh", "-c", "find '" + _folder + "' -maxdepth 1 -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.bmp' -o -iname '*.webp'"]
+        command: ["sh", "-c", "find '" + _folder + "' -maxdepth 1 -type f -iname '*.jpg' -o -type f -iname '*.jpeg' -o -type f -iname '*.png' -o -type f -iname '*.bmp' -o -type f -iname '*.webp'"]
 
         stdout: SplitParser {
             onRead: line => {
@@ -207,7 +226,7 @@ Item {
             root.filesList = [];
             folderProc.ready = false;
             scanProc.running = false;
-            scanProc.command = ["sh", "-c", "find '" + wallpapersFolder + "' -maxdepth 1 -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.bmp' -o -iname '*.webp'"];
+            scanProc.command = ["sh", "-c", "find '" + wallpapersFolder + "' -maxdepth 1 -type f -iname '*.jpg' -o -type f -iname '*.jpeg' -o -type f -iname '*.png' -o -type f -iname '*.bmp' -o -type f -iname '*.webp'"];
             scanProc.running = true;
         }
     }
