@@ -31,6 +31,10 @@ Item {
 
     readonly property string baseCacheDir: (Settings.cacheDir || "/tmp/") + "spanning-wallpaper"
 
+    // Auto-switch settings
+    readonly property bool autoEnabled: pluginApi?.pluginSettings?.autoEnabled || false
+    readonly property int autoIntervalSec: pluginApi?.pluginSettings?.autoIntervalSec || 300
+
 
     /***************************
     * WALLPAPER FUNCTIONALITY
@@ -160,6 +164,24 @@ Item {
         pluginApi.saveSettings();
     }
 
+    // Pre-generate thumbnails for all images in the folder so the panel opens instantly.
+    // ImageCached.qml caches as: sha256(imagePath)@384x384.png
+    // bash sha256sum produces identical output for the same string.
+    function generateThumbnails(files) {
+        if (files.length === 0) return;
+        var cacheDir = Settings.cacheDirImagesWallpapers;
+        var script = "mkdir -p '" + cacheDir + "'\n";
+        for (var i = 0; i < files.length; i++) {
+            var p = files[i];
+            script += "HASH=$(echo -n '" + p + "' | sha256sum | awk '{print $1}')\n";
+            script += "THUMB='" + cacheDir + "'\"${HASH}@384x384.png\"\n";
+            script += "if [ ! -f \"$THUMB\" ]; then magick '" + p + "' -thumbnail '384x384^' -gravity center -extent '384x384' \"$THUMB\" & fi\n";
+        }
+        script += "wait\n";
+        thumbProc.command = ["sh", "-c", script];
+        thumbProc.running = true;
+    }
+
 
     /***************************
     * INTERNALS
@@ -171,7 +193,7 @@ Item {
         property string sliceDir: ""
     }
 
-    // Image processing
+    // Wallpaper processing
     Process {
         id: magickProc
 
@@ -196,6 +218,17 @@ Item {
                 Logger.e("spanning-wallpaper", "magick failed with exit code: " + exitCode);
             }
             root.processing = false;
+        }
+    }
+
+    // Background thumbnail pre-generation (runs after folder scan, doesn't block)
+    Process {
+        id: thumbProc
+        stderr: SplitParser {
+            onRead: line => Logger.w("spanning-wallpaper", "thumbgen: " + line);
+        }
+        onExited: (exitCode) => {
+            Logger.i("spanning-wallpaper", "Thumbnail pre-generation done (exit " + exitCode + ")");
         }
     }
 
@@ -224,6 +257,10 @@ Item {
         onExited: {
             folderProc.ready = true;
             Logger.i("spanning-wallpaper", "Found " + root.filesList.length + " images in " + root.wallpapersFolder);
+
+            // Pre-generate thumbnails in the background so panel opens instantly
+            root.generateThumbnails(root.filesList);
+
             // Restore wallpaper from saved settings after scan completes
             if (root.currentWallpaper !== "") {
                 Logger.i("spanning-wallpaper", "Restoring saved wallpaper:", root.currentWallpaper);
@@ -232,8 +269,21 @@ Item {
         }
     }
 
+    // Auto-switch timer
+    Timer {
+        id: autoTimer
+        interval: root.autoIntervalSec * 1000
+        running: root.autoEnabled && root.filesReady && root.filesList.length > 0
+        repeat: true
+        triggeredOnStart: false
+        onTriggered: {
+            Logger.i("spanning-wallpaper", "Auto-switch triggered");
+            root.random();
+        }
+    }
+
     Component.onCompleted: {
-        // Ensure thumbnail cache directory exists (used by NImageCached in Panel.qml)
+        // Ensure thumbnail cache directory exists
         Quickshell.execDetached(["mkdir", "-p", Settings.cacheDirImagesWallpapers]);
     }
 
