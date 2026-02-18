@@ -103,9 +103,9 @@ Item {
         if (upscaleEnabled) {
             var upW = totalWidth * upscaleMultiplier;
             var upH = totalHeight * upscaleMultiplier;
-            script += "magick '" + srcPath + "' -filter " + upscaleMethod + " -resize '" + upW + "x" + upH + "' -resize '" + totalWidth + "x" + totalHeight + "^' -gravity center -extent '" + totalWidth + "x" + totalHeight + "' -quality 95 '" + tmpResized + "'\n";
+            script += "magick '" + srcPath + "' -filter " + upscaleMethod + " -resize '" + upW + "x" + upH + "!' -resize '" + totalWidth + "x" + totalHeight + "!' -quality 95 '" + tmpResized + "'\n";
         } else {
-            script += "magick '" + srcPath + "' -resize '" + totalWidth + "x" + totalHeight + "^' -gravity center -extent '" + totalWidth + "x" + totalHeight + "' -quality 95 '" + tmpResized + "'\n";
+            script += "magick '" + srcPath + "' -resize '" + totalWidth + "x" + totalHeight + "!' -quality 95 '" + tmpResized + "'\n";
         }
 
         // Step 2: Crop each monitor's slice in parallel for speed
