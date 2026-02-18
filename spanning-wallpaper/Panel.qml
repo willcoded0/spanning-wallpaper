@@ -222,12 +222,11 @@ Item {
                             Layout.preferredHeight: gridView.thumbHeight
                             color: Color.mSurfaceVariant
 
-                            // Thumbnail — NImageCached generates a small PNG on disk
+                            // Thumbnail — ImageCached generates a small PNG on disk
                             // so subsequent opens are instant
-                            NImageCached {
+                            ImageCached {
                                 anchors.fill: parent
                                 imagePath: wallpaperItem.wallpaperPath
-                                cacheFolder: Settings.cacheDirImagesWallpapers
                             }
 
                             // Dim overlay (fades out on hover/select)
