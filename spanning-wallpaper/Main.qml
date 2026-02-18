@@ -101,8 +101,16 @@ Item {
         var tmpResized = sliceDir + "/resized.jpg";
 
         if (upscaleEnabled) {
-            // Use high-quality filter + unsharp mask for best perceived quality
-            script += "magick '" + srcPath + "' -filter " + upscaleMethod + " -resize '" + totalWidth + "x" + totalHeight + "!' -unsharp 0x1+0.5+0 -quality 95 '" + tmpResized + "'\n";
+            // Try AI upscaling with realesrgan first, fall back to Lanczos
+            var aiTmp = sliceDir + "/ai_upscaled.png";
+            var modelDir = Quickshell.env("HOME") + "/.local/bin/models";
+            var realesrgan = Quickshell.env("HOME") + "/.local/bin/realesrgan-ncnn-vulkan";
+            script += "if [ -x '" + realesrgan + "' ] && [ -d '" + modelDir + "' ] && '" + realesrgan + "' -i '" + srcPath + "' -o '" + aiTmp + "' -n realesrgan-x4plus-anime -m '" + modelDir + "' -f png -s 4 2>/dev/null; then\n";
+            script += "  magick '" + aiTmp + "' -filter Lanczos -resize '" + totalWidth + "x" + totalHeight + "!' -quality 95 '" + tmpResized + "'\n";
+            script += "  rm -f '" + aiTmp + "'\n";
+            script += "else\n";
+            script += "  magick '" + srcPath + "' -filter Lanczos -resize '" + totalWidth + "x" + totalHeight + "!' -unsharp 0x1+0.5+0 -quality 95 '" + tmpResized + "'\n";
+            script += "fi\n";
         } else {
             script += "magick '" + srcPath + "' -resize '" + totalWidth + "x" + totalHeight + "!' -quality 95 '" + tmpResized + "'\n";
         }
