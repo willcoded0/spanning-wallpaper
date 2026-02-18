@@ -232,6 +232,11 @@ Item {
         }
     }
 
+    Component.onCompleted: {
+        // Ensure thumbnail cache directory exists (used by NImageCached in Panel.qml)
+        Quickshell.execDetached(["mkdir", "-p", Settings.cacheDirImagesWallpapers]);
+    }
+
     onWallpapersFolderChanged: {
         if (wallpapersFolder !== "") {
             root.filesList = [];
