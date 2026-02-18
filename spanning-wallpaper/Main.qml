@@ -88,8 +88,6 @@ Item {
 
         // Check upscale settings
         var upscaleEnabled = pluginApi?.pluginSettings?.upscaleEnabled || false;
-        var upscaleMethod = pluginApi?.pluginSettings?.upscaleMethod || "lanczos";
-        var upscaleMultiplier = pluginApi?.pluginSettings?.upscaleMultiplier || 2;
 
         var script = "set -e\n";
 
