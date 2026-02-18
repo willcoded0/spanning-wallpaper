@@ -101,9 +101,8 @@ Item {
         var tmpResized = sliceDir + "/resized.jpg";
 
         if (upscaleEnabled) {
-            var upW = totalWidth * upscaleMultiplier;
-            var upH = totalHeight * upscaleMultiplier;
-            script += "magick '" + srcPath + "' -filter " + upscaleMethod + " -resize '" + upW + "x" + upH + "!' -resize '" + totalWidth + "x" + totalHeight + "!' -quality 95 '" + tmpResized + "'\n";
+            // Use high-quality filter + unsharp mask for best perceived quality
+            script += "magick '" + srcPath + "' -filter " + upscaleMethod + " -resize '" + totalWidth + "x" + totalHeight + "!' -unsharp 0x1+0.5+0 -quality 95 '" + tmpResized + "'\n";
         } else {
             script += "magick '" + srcPath + "' -resize '" + totalWidth + "x" + totalHeight + "!' -quality 95 '" + tmpResized + "'\n";
         }
