@@ -210,14 +210,20 @@ Item {
 
         stdout: SplitParser {
             onRead: line => {
-                if (line.trim() !== "") {
-                    root.filesList.push(line);
+                var trimmed = line.trim();
+                if (trimmed !== "") {
+                    root.filesList.push(trimmed);
                 }
             }
         }
         onExited: {
             folderProc.ready = true;
             Logger.i("spanning-wallpaper", "Found " + root.filesList.length + " images in " + root.wallpapersFolder);
+            // Restore wallpaper from saved settings after scan completes
+            if (root.currentWallpaper !== "") {
+                Logger.i("spanning-wallpaper", "Restoring saved wallpaper:", root.currentWallpaper);
+                root.applySpanning(root.currentWallpaper);
+            }
         }
     }
 
