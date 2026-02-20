@@ -30,6 +30,10 @@ Item {
 
     property string searchText: ""
 
+    readonly property var photoUpscaleStates: pluginApi?.mainInstance?.photoUpscaleStates || ({})
+    readonly property int photoUpscaleStateVersion: pluginApi?.mainInstance?.photoUpscaleStateVersion || 0
+    readonly property bool globalUpscaleEnabled: pluginApi?.pluginSettings?.upscaleEnabled || false
+
     property var filteredList: {
         var list = root.filesList;
         if (!list || list.length === 0) return list;
@@ -213,6 +217,17 @@ Item {
                         property bool isSelected: wallpaperPath === root.currentWallpaper
                         property string filename: wallpaperPath.split('/').pop()
 
+                        property bool isUpscaled: {
+                            var _v = root.photoUpscaleStateVersion;
+                            var states = root.photoUpscaleStates;
+                            if (states && states.hasOwnProperty(wallpaperPath)) return states[wallpaperPath];
+                            return root.globalUpscaleEnabled;
+                        }
+                        property bool hasUpscaleOverride: {
+                            var _v = root.photoUpscaleStateVersion;
+                            return root.photoUpscaleStates.hasOwnProperty(wallpaperPath);
+                        }
+
                         width: gridView.itemSize
                         spacing: Style.marginXS
 
@@ -277,12 +292,72 @@ Item {
                                 visible: root.processing && wallpaperItem.isSelected
                             }
 
+                            // Upscale toggle badge (bottom-left)
+                            Rectangle {
+                                id: upscaleToggle
+                                anchors.bottom: parent.bottom
+                                anchors.left: parent.left
+                                anchors.margins: Style.marginS
+                                width: 24
+                                height: 24
+                                radius: 12
+                                color: wallpaperItem.isUpscaled && wallpaperItem.hasUpscaleOverride
+                                    ? Color.mSecondary
+                                    : Color.mSurfaceVariant
+                                border.color: Color.mOutline
+                                border.width: Style.borderS
+                                // Always visible if this photo has an explicit override; otherwise fade in on hover
+                                visible: hoverHandler.hovered || wallpaperItem.hasUpscaleOverride
+                                opacity: hoverHandler.hovered ? 1.0 : 0.75
+                                Behavior on opacity { NumberAnimation { duration: Style.animationFast } }
+
+                                ToolTip.visible: upscaleHover.hovered
+                                ToolTip.delay: 600
+                                ToolTip.text: wallpaperItem.hasUpscaleOverride
+                                    ? (wallpaperItem.isUpscaled ? "AI Upscale: ON (per-photo) — click to remove" : "AI Upscale: OFF (per-photo) — click to remove")
+                                    : (wallpaperItem.isUpscaled ? "AI Upscale: ON (global) — click to pin OFF" : "AI Upscale: OFF (global) — click to pin ON")
+
+                                NIcon {
+                                    anchors.centerIn: parent
+                                    icon: "sparkles"
+                                    pointSize: Style.fontSizeS
+                                    color: wallpaperItem.isUpscaled && wallpaperItem.hasUpscaleOverride
+                                        ? Color.mOnSecondary
+                                        : Color.mOnSurfaceVariant
+                                }
+
+                                HoverHandler { id: upscaleHover }
+
+                                TapHandler {
+                                    onTapped: {
+                                        if (root.pluginApi?.mainInstance == null) return;
+                                        var newState;
+                                        if (!wallpaperItem.hasUpscaleOverride) {
+                                            // No override yet: pin the opposite of current effective state
+                                            newState = !wallpaperItem.isUpscaled;
+                                        } else {
+                                            // Already has override: toggle it
+                                            newState = !wallpaperItem.isUpscaled;
+                                        }
+                                        root.pluginApi.mainInstance.setPhotoUpscaleState(wallpaperItem.wallpaperPath, newState);
+                                        // Re-apply if this is the active wallpaper so you see the change immediately
+                                        if (wallpaperItem.isSelected && !root.processing) {
+                                            root.pluginApi.mainInstance.applySpanning(wallpaperItem.wallpaperPath);
+                                        }
+                                    }
+                                }
+                            }
+
                             HoverHandler { id: hoverHandler }
 
                             TapHandler {
-                                onTapped: {
+                                onTapped: (eventPoint) => {
                                     if (root.processing) return;
                                     if (root.pluginApi?.mainInstance == null) return;
+                                    // Ignore taps that land on the upscale toggle button
+                                    var p = eventPoint.position;
+                                    if (p.x >= upscaleToggle.x && p.x <= upscaleToggle.x + upscaleToggle.width &&
+                                            p.y >= upscaleToggle.y && p.y <= upscaleToggle.y + upscaleToggle.height) return;
                                     gridView.currentIndex = index;
                                     root.pluginApi.mainInstance.applySpanning(wallpaperItem.wallpaperPath);
                                 }

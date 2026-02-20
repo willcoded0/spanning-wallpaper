@@ -31,6 +31,10 @@ Item {
 
     readonly property string baseCacheDir: (Settings.cacheDir || "/tmp/") + "spanning-wallpaper"
 
+    // Per-photo upscale overrides — { "/path/to/img.jpg": true/false }
+    property var photoUpscaleStates: ({})
+    property int photoUpscaleStateVersion: 0
+
     // Auto-switch settings
     readonly property bool autoEnabled: pluginApi?.pluginSettings?.autoEnabled || false
     readonly property int autoIntervalSec: pluginApi?.pluginSettings?.autoIntervalSec || 300
@@ -90,8 +94,11 @@ Item {
         // Use a unique subdir per generation so WallpaperService sees a new path every time
         var sliceDir = root.baseCacheDir + "/" + gen;
 
-        // Check upscale settings
-        var upscaleEnabled = pluginApi?.pluginSettings?.upscaleEnabled || false;
+        // Check upscale settings: per-photo override takes precedence over global
+        var globalUpscale = pluginApi?.pluginSettings?.upscaleEnabled || false;
+        var upscaleEnabled = root.photoUpscaleStates.hasOwnProperty(path)
+            ? root.photoUpscaleStates[path]
+            : globalUpscale;
 
         var script = "set -e\n";
 
@@ -162,6 +169,17 @@ Item {
 
         pluginApi.pluginSettings.currentWallpaper = "";
         pluginApi.saveSettings();
+    }
+
+    function setPhotoUpscaleState(path, enabled) {
+        var newStates = Object.assign({}, root.photoUpscaleStates);
+        newStates[path] = enabled;
+        root.photoUpscaleStates = newStates;
+        root.photoUpscaleStateVersion++;
+        if (root.pluginApi) {
+            root.pluginApi.pluginSettings.photoUpscaleStates = newStates;
+            root.pluginApi.saveSettings();
+        }
     }
 
     // Pre-generate thumbnails for all images in the folder so the panel opens instantly.
@@ -283,6 +301,11 @@ Item {
     }
 
     Component.onCompleted: {
+        // Load per-photo upscale states persisted from last session
+        var savedStates = pluginApi?.pluginSettings?.photoUpscaleStates;
+        if (savedStates && typeof savedStates === 'object') {
+            root.photoUpscaleStates = savedStates;
+        }
         // Ensure thumbnail cache directory exists
         Quickshell.execDetached(["mkdir", "-p", Settings.cacheDirImagesWallpapers]);
     }
